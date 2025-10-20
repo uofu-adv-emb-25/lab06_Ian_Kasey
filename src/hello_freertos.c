@@ -8,10 +8,10 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include "pico/cyw43_arch.h"
+#include "semphr.h"
 
 int count = 0;
 bool on = false;
@@ -21,8 +21,9 @@ bool on = false;
 #define MAIN_TASK_STACK_SIZE configMINIMAL_STACK_SIZE
 #define BLINK_TASK_STACK_SIZE configMINIMAL_STACK_SIZE
 
-void blink_task(__unused void *params) {
+void lower_prio_task(__unused void *params) {
     hard_assert(cyw43_arch_init() == PICO_OK);
+
     while (true) {
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, on);
         if (count++ % 11) on = !on;
