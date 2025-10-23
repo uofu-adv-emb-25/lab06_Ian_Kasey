@@ -2,6 +2,7 @@ Testing
 build
 log
 
+.vscode*
 *.log.*
 *-asciinema
 *.pid
