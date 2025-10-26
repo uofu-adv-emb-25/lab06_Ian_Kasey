@@ -37,7 +37,7 @@ void print_task_status(Tasks_To_Print* task_list, size_t task_count) {
     for(int i=0; i < 5; i++) {
         for(int i=0; i < task_count; i++) {
             vTaskGetInfo(task_list[i].task_handle, &status[i], pdFALSE, eInvalid);
-            printf("Task %s Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", task_list[i].task_name, status[i].eCurrentState, status[i].pcTaskName, status[i].ulRunTimeCounter);
+            printf("Task %s Status:\n\tState: %d\n\tExecution Time: %llu\n", task_list[i].task_name, status[i].eCurrentState, status[i].ulRunTimeCounter);
         }
         vTaskDelay(pdMS_TO_TICKS(5));
     }
@@ -110,9 +110,6 @@ void test_priority_inversion_with_mutex() {
                 HIGHER_TASK_STACK_SIZE, (void *)&lock, HIGHER_TASK_PRIORITY, &higher_task);
     xTaskCreate(medium_prio_task, "MediumPrioTask",
                 MEDIUM_TASK_STACK_SIZE, NULL, MEDIUM_TASK_PRIORITY, &medium_task);
-    TaskStatus_t lower_task_status;
-    TaskStatus_t medium_task_status;
-    TaskStatus_t higher_task_status;
 
     // Block for 1ms to allow HigherPrioTask & MediumPrioTask to run
     vTaskDelay(pdMS_TO_TICKS(1));
@@ -134,10 +131,6 @@ void test_priority_inversion_with_mutex() {
 }
 
 void test_same_priority_busy_busy(void) {
-
-    // xTaskCreate(lower_prio_task, "LowerPrioTask",
-    //             LOWER_TASK_STACK_SIZE, (void *)&lock, LOWER_TASK_PRIORITY, &lower_task);
-
     TaskHandle_t task1;
     TaskHandle_t task2;
 
@@ -146,8 +139,160 @@ void test_same_priority_busy_busy(void) {
     xTaskCreate(busy_busy, "task 2",
                 LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task2);
 
-    // printf("Task 1 Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", lower_task_status.eCurrentState, lower_task_status.pcTaskName, lower_task_status.ulRunTimeCounter);
-    // printf("Task 2 Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", medium_task_status.eCurrentState, medium_task_status.pcTaskName, medium_task_status.ulRunTimeCounter);
+    Tasks_To_Print task_list[] = {
+        { task1, "task 1" },
+        { task2, "task 2" },
+    };
+
+    print_task_status(task_list, 2);
+
+    vTaskDelete(task1);
+    vTaskDelete(task2);
+
+    // give time for cleanup
+    vTaskDelay(pdMS_TO_TICKS(1));
+}
+
+void test_same_priority_busy_yield(void) {
+    TaskHandle_t task1;
+    TaskHandle_t task2;
+
+    xTaskCreate(busy_yield, "task 1",
+                LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task1);
+    xTaskCreate(busy_yield, "task 2",
+                LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task2);
+
+    Tasks_To_Print task_list[] = {
+        { task1, "task 1" },
+        { task2, "task 2" },
+    };
+
+    print_task_status(task_list, 2);
+
+    vTaskDelete(task1);
+    vTaskDelete(task2);
+
+    // give time for cleanup
+    vTaskDelay(pdMS_TO_TICKS(1));
+}
+
+void test_same_priority_busy_yield_and_busy(void) {
+    TaskHandle_t task1;
+    TaskHandle_t task2;
+
+    xTaskCreate(busy_busy, "task 1",
+                LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task1);
+    xTaskCreate(busy_yield, "task 2",
+                LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task2);
+
+    Tasks_To_Print task_list[] = {
+        { task1, "task 1 (busy)" },
+        { task2, "task 2 (yield)" },
+    };
+
+    print_task_status(task_list, 2);
+
+    vTaskDelete(task1);
+    vTaskDelete(task2);
+
+    // give time for cleanup
+    vTaskDelay(pdMS_TO_TICKS(1));
+}
+
+void test_different_priority_busy_busy_high_first(void) {
+    TaskHandle_t task1;
+    TaskHandle_t task2;
+
+    xTaskCreate(busy_busy, "task 1",
+                HIGHER_TASK_STACK_SIZE, NULL, HIGHER_TASK_PRIORITY, &task1);
+    vTaskDelay(pdMS_TO_TICKS(1));
+    xTaskCreate(busy_busy, "task 2",
+                LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task2);
+
+    Tasks_To_Print task_list[] = {
+        { task1, "task 1 (high)" },
+        { task2, "task 2 (low)" },
+    };
+
+    print_task_status(task_list, 2);
+
+    vTaskDelete(task1);
+    vTaskDelete(task2);
+
+    // give time for cleanup
+    vTaskDelay(pdMS_TO_TICKS(1));
+}
+
+void test_different_priority_busy_busy_low_first(void) {
+    TaskHandle_t task1;
+    TaskHandle_t task2;
+
+    xTaskCreate(busy_busy, "task 1",
+                LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task1);
+    vTaskDelay(pdMS_TO_TICKS(1));
+    xTaskCreate(busy_busy, "task 2",
+                HIGHER_TASK_STACK_SIZE, NULL, HIGHER_TASK_PRIORITY, &task2);
+
+    Tasks_To_Print task_list[] = {
+        { task1, "task 1 (high)" },
+        { task2, "task 2 (low)" },
+    };
+
+    print_task_status(task_list, 2);
+
+    vTaskDelete(task1);
+    vTaskDelete(task2);
+
+    // give time for cleanup
+    vTaskDelay(pdMS_TO_TICKS(1));
+}
+
+void test_different_priority_busy_yield_high_first(void) {
+    TaskHandle_t task1;
+    TaskHandle_t task2;
+
+    xTaskCreate(busy_yield, "task 1",
+                HIGHER_TASK_STACK_SIZE, NULL, HIGHER_TASK_PRIORITY, &task1);
+    vTaskDelay(pdMS_TO_TICKS(1));
+    xTaskCreate(busy_yield, "task 2",
+                LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task2);
+
+    Tasks_To_Print task_list[] = {
+        { task1, "task 1 (high)" },
+        { task2, "task 2 (low)" },
+    };
+
+    print_task_status(task_list, 2);
+
+    vTaskDelete(task1);
+    vTaskDelete(task2);
+
+    // give time for cleanup
+    vTaskDelay(pdMS_TO_TICKS(1));
+}
+
+void test_different_priority_busy_yield_low_first(void) {
+    TaskHandle_t task1;
+    TaskHandle_t task2;
+
+    xTaskCreate(busy_yield, "task 1",
+                LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task1);
+    vTaskDelay(pdMS_TO_TICKS(1));
+    xTaskCreate(busy_yield, "task 2",
+                HIGHER_TASK_STACK_SIZE, NULL, HIGHER_TASK_PRIORITY, &task2);
+
+    Tasks_To_Print task_list[] = {
+        { task1, "task 1 (high)" },
+        { task2, "task 2 (low)" },
+    };
+
+    print_task_status(task_list, 2);
+
+    vTaskDelete(task1);
+    vTaskDelete(task2);
+
+    // give time for cleanup
+    vTaskDelay(pdMS_TO_TICKS(1));
 }
 
 void runner_thread (__unused void *args)
@@ -157,6 +302,13 @@ void runner_thread (__unused void *args)
         UNITY_BEGIN();
         RUN_TEST(test_priority_inversion);
         RUN_TEST(test_priority_inversion_with_mutex);
+        RUN_TEST(test_same_priority_busy_busy);
+        RUN_TEST(test_same_priority_busy_yield);
+        RUN_TEST(test_same_priority_busy_yield_and_busy);
+        RUN_TEST(test_different_priority_busy_busy_high_first);
+        RUN_TEST(test_different_priority_busy_busy_low_first);
+        RUN_TEST(test_different_priority_busy_yield_high_first);
+        RUN_TEST(test_different_priority_busy_yield_low_first);
         UNITY_END();
         sleep_ms(5000);
     }
