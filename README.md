@@ -12,7 +12,7 @@ Lab06 stuff goes here.
 
 For this activity we were asked to setup three threads, where the lower priority thread takes a lock and holds it, a high priority thread tries to take that lock after a delay, and a medium priority lock executes some code.
 
-We found that the higher priority thread was blocked while the lower priority thread kept the lock, which resulted in the medium priority thread being ran for a majority of the time.
+We found that the higher priority thread was blocked while the lower priority thread kept the lock, which resulted in the medium priority thread being ran for a majority of the time and not allowing the lower priority to complete its work.
 
 This is an example of priority inversion.
 

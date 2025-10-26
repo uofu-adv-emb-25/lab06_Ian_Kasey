@@ -22,6 +22,27 @@ void setUp(void) {}
 
 void tearDown(void) {}
 
+typedef struct {
+    TaskHandle_t task_handle;
+    const char* task_name;
+} Tasks_To_Print;
+
+void print_task_status(Tasks_To_Print* task_list, size_t task_count) {
+    TaskStatus_t status[task_count];
+
+    // eNums for Task States:
+    // eRunning == 0
+    // eReady   == 1
+    // eBlocked == 2
+    for(int i=0; i < 5; i++) {
+        for(int i=0; i < task_count; i++) {
+            vTaskGetInfo(task_list[i].task_handle, &status[i], pdFALSE, eInvalid);
+            printf("Task %s Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", task_list[i].task_name, status[i].eCurrentState, status[i].pcTaskName, status[i].ulRunTimeCounter);
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+}
+
 void higher_prio_task(void *params) {
     SemaphoreHandle_t lock = (*(SemaphoreHandle_t*)params);
     while(1) {
@@ -47,7 +68,36 @@ void lower_prio_task(void *params) {
 }
 
 void test_priority_inversion() {
-    // SemaphoreHandle_t lock = xSemaphoreCreateBinary();
+    SemaphoreHandle_t lock = xSemaphoreCreateBinary();
+    xSemaphoreGive(lock);
+    TaskHandle_t lower_task;
+    TaskHandle_t medium_task;
+    TaskHandle_t higher_task;
+    xTaskCreate(lower_prio_task, "LowerPrioTask",
+                LOWER_TASK_STACK_SIZE, (void *)&lock, LOWER_TASK_PRIORITY, &lower_task);
+    vTaskDelay(pdMS_TO_TICKS(1));
+    xTaskCreate(higher_prio_task, "HigherPrioTask",
+                HIGHER_TASK_STACK_SIZE, (void *)&lock, HIGHER_TASK_PRIORITY, &higher_task);
+    xTaskCreate(medium_prio_task, "MediumPrioTask",
+                MEDIUM_TASK_STACK_SIZE, NULL, MEDIUM_TASK_PRIORITY, &medium_task);
+
+    // Block for 1ms to allow HigherPrioTask & MediumPrioTask to run
+    vTaskDelay(pdMS_TO_TICKS(1));
+
+    Tasks_To_Print task_list[] = {
+        { lower_task, "low priority" },
+        { medium_task, "medium priority" },
+        { higher_task, "high priority" },
+    };
+
+    print_task_status(task_list, 3);
+
+    vTaskDelete(lower_task);
+    vTaskDelete(medium_task);
+    vTaskDelete(higher_task);
+}
+
+void test_priority_inversion_with_mutex() {
     SemaphoreHandle_t lock = xSemaphoreCreateMutex();
     xSemaphoreGive(lock);
     TaskHandle_t lower_task;
@@ -67,41 +117,37 @@ void test_priority_inversion() {
     // Block for 1ms to allow HigherPrioTask & MediumPrioTask to run
     vTaskDelay(pdMS_TO_TICKS(1));
 
-    // eNums for Task States:
-    // eRunning == 0
-    // eReady   == 1
-    // eBlocked == 2
+    Tasks_To_Print task_list[] = {
+        { lower_task, "low priority" },
+        { medium_task, "medium priority" },
+        { higher_task, "high priority" },
+    };
 
-    vTaskGetInfo(lower_task, &lower_task_status, pdFALSE, eInvalid);
-    vTaskGetInfo(medium_task, &medium_task_status, pdFALSE, eInvalid);
-    vTaskGetInfo(higher_task, &higher_task_status, pdFALSE, eInvalid);
-    printf("Lower Task Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", lower_task_status.eCurrentState, lower_task_status.pcTaskName, lower_task_status.ulRunTimeCounter);
-    printf("Medium Task Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", medium_task_status.eCurrentState, medium_task_status.pcTaskName, medium_task_status.ulRunTimeCounter);
-    printf("Higher Task Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", higher_task_status.eCurrentState, higher_task_status.pcTaskName, higher_task_status.ulRunTimeCounter);
-
-    // Capture current runtime values
-    // For each 5ms interval:
-    //    lower should stay the same
-    //    medium should increase
-    //    higher should stay the same
-    // Showing priority inversion
-    uint64_t lower_prio_runtime = lower_task_status.ulRunTimeCounter;
-    uint64_t medium_prio_runtime = medium_task_status.ulRunTimeCounter;
-    uint64_t higher_prio_runtime = higher_task_status.ulRunTimeCounter;
-
-    for(int i = 0; i < 4; i++) {
-        vTaskDelay(pdMS_TO_TICKS(5));
-        vTaskGetInfo(lower_task, &lower_task_status, pdFALSE, eInvalid);
-        vTaskGetInfo(medium_task, &medium_task_status, pdFALSE, eInvalid);
-        vTaskGetInfo(higher_task, &higher_task_status, pdFALSE, eInvalid);
-        printf("Lower Task Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", lower_task_status.eCurrentState, lower_task_status.pcTaskName, lower_task_status.ulRunTimeCounter);
-        printf("Medium Task Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", medium_task_status.eCurrentState, medium_task_status.pcTaskName, medium_task_status.ulRunTimeCounter);
-        printf("Higher Task Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", higher_task_status.eCurrentState, higher_task_status.pcTaskName, higher_task_status.ulRunTimeCounter);
-    }
+    print_task_status(task_list, 3);
 
     vTaskDelete(lower_task);
     vTaskDelete(medium_task);
     vTaskDelete(higher_task);
+
+    // give time for cleanup
+    vTaskDelay(pdMS_TO_TICKS(1));
+}
+
+void test_same_priority_busy_busy(void) {
+
+    // xTaskCreate(lower_prio_task, "LowerPrioTask",
+    //             LOWER_TASK_STACK_SIZE, (void *)&lock, LOWER_TASK_PRIORITY, &lower_task);
+
+    TaskHandle_t task1;
+    TaskHandle_t task2;
+
+    xTaskCreate(busy_busy, "task 1",
+                LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task1);
+    xTaskCreate(busy_busy, "task 2",
+                LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task2);
+
+    // printf("Task 1 Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", lower_task_status.eCurrentState, lower_task_status.pcTaskName, lower_task_status.ulRunTimeCounter);
+    // printf("Task 2 Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", medium_task_status.eCurrentState, medium_task_status.pcTaskName, medium_task_status.ulRunTimeCounter);
 }
 
 void runner_thread (__unused void *args)
@@ -110,6 +156,7 @@ void runner_thread (__unused void *args)
         printf("Starting test run.\n");
         UNITY_BEGIN();
         RUN_TEST(test_priority_inversion);
+        RUN_TEST(test_priority_inversion_with_mutex);
         UNITY_END();
         sleep_ms(5000);
     }
