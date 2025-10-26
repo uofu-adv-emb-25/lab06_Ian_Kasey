@@ -6,6 +6,7 @@
 #include <unity.h>
 #include "unity_config.h"
 #include "semphr.h"
+#include "busy.h"
 
 
 #define TEST_RUNNER_PRIORITY      ( tskIDLE_PRIORITY + 10UL )
@@ -46,7 +47,8 @@ void lower_prio_task(void *params) {
 }
 
 void test_priority_inversion() {
-    SemaphoreHandle_t lock = xSemaphoreCreateBinary();
+    // SemaphoreHandle_t lock = xSemaphoreCreateBinary();
+    SemaphoreHandle_t lock = xSemaphoreCreateMutex();
     xSemaphoreGive(lock);
     TaskHandle_t lower_task;
     TaskHandle_t medium_task;
@@ -89,12 +91,12 @@ void test_priority_inversion() {
 
     for(int i = 0; i < 4; i++) {
         vTaskDelay(pdMS_TO_TICKS(5));
-    vTaskGetInfo(lower_task, &lower_task_status, pdFALSE, eInvalid);
-    vTaskGetInfo(medium_task, &medium_task_status, pdFALSE, eInvalid);
-    vTaskGetInfo(higher_task, &higher_task_status, pdFALSE, eInvalid);
-    printf("Lower Task Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", lower_task_status.eCurrentState, lower_task_status.pcTaskName, lower_task_status.ulRunTimeCounter);
-    printf("Medium Task Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", medium_task_status.eCurrentState, medium_task_status.pcTaskName, medium_task_status.ulRunTimeCounter);
-    printf("Higher Task Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", higher_task_status.eCurrentState, higher_task_status.pcTaskName, higher_task_status.ulRunTimeCounter);
+        vTaskGetInfo(lower_task, &lower_task_status, pdFALSE, eInvalid);
+        vTaskGetInfo(medium_task, &medium_task_status, pdFALSE, eInvalid);
+        vTaskGetInfo(higher_task, &higher_task_status, pdFALSE, eInvalid);
+        printf("Lower Task Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", lower_task_status.eCurrentState, lower_task_status.pcTaskName, lower_task_status.ulRunTimeCounter);
+        printf("Medium Task Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", medium_task_status.eCurrentState, medium_task_status.pcTaskName, medium_task_status.ulRunTimeCounter);
+        printf("Higher Task Status:\n\tState: %d\n\tName: %s\n\tExecution Time: %llu\n", higher_task_status.eCurrentState, higher_task_status.pcTaskName, higher_task_status.ulRunTimeCounter);
     }
 
     vTaskDelete(lower_task);
