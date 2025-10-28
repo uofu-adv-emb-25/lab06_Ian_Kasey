@@ -8,7 +8,6 @@
 #include "semphr.h"
 #include "busy.h"
 
-
 #define TEST_RUNNER_PRIORITY      ( tskIDLE_PRIORITY + 10UL )
 #define LOWER_TASK_PRIORITY     ( tskIDLE_PRIORITY + 1UL )
 #define MEDIUM_TASK_PRIORITY     ( tskIDLE_PRIORITY + 3UL )
@@ -17,6 +16,9 @@
 #define LOWER_TASK_STACK_SIZE configMINIMAL_STACK_SIZE
 #define MEDIUM_TASK_STACK_SIZE configMINIMAL_STACK_SIZE
 #define HIGHER_TASK_STACK_SIZE configMINIMAL_STACK_SIZE
+
+// Uncomment for verbose output
+// #define TEST_VERBOSE
 
 void setUp(void) {}
 
@@ -84,6 +86,38 @@ void test_priority_inversion() {
     // Block for 1ms to allow HigherPrioTask & MediumPrioTask to run
     vTaskDelay(pdMS_TO_TICKS(1));
 
+    TaskStatus_t lower_prio_status, medium_prio_status, higher_prio_status;
+
+    vTaskGetInfo(lower_task, &lower_prio_status, pdFALSE, eInvalid);
+    vTaskGetInfo(medium_task, &medium_prio_status, pdFALSE, eInvalid);
+    vTaskGetInfo(higher_task, &higher_prio_status, pdFALSE, eInvalid);
+
+
+    // Get last runtime value for each task
+    uint64_t last_runntime_lower = lower_prio_status.ulRunTimeCounter;
+    uint64_t last_runntime_medium = lower_prio_status.ulRunTimeCounter;
+    uint64_t last_runntime_higher = lower_prio_status.ulRunTimeCounter;
+
+    // Loop and check each time
+    for(int i = 0; i < 5; i ++) {
+        vTaskDelay(pdMS_TO_TICKS(1));
+        // Lower prio doesn't change
+        TEST_ASSERT_TRUE_MESSAGE(lower_prio_status.ulRunTimeCounter == last_runntime_lower,
+                                 "Lower priority runntime should not change for priority inversion.");
+        // Medium prio increases
+        TEST_ASSERT_TRUE_MESSAGE(medium_prio_status.ulRunTimeCounter > last_runntime_medium,
+                                 "Medium priority runntime should increase for priority inversion.");
+        // Higher prio doesn't change
+        TEST_ASSERT_TRUE_MESSAGE(higher_prio_status.ulRunTimeCounter == last_runntime_higher,
+                                 "Higher priority runntime should not change for priority inversion.");
+
+        // Set previous runtimes
+        last_runntime_lower = lower_prio_status.ulRunTimeCounter;
+        last_runntime_medium = lower_prio_status.ulRunTimeCounter;
+        last_runntime_higher = lower_prio_status.ulRunTimeCounter;
+    }
+
+    #ifdef TEST_VERBOSE
     Tasks_To_Print task_list[] = {
         { lower_task, "low priority" },
         { medium_task, "medium priority" },
@@ -91,7 +125,9 @@ void test_priority_inversion() {
     };
 
     print_task_status(task_list, 3);
+    #endif
 
+    // Cleanup
     vTaskDelete(lower_task);
     vTaskDelete(medium_task);
     vTaskDelete(higher_task);
