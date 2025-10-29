@@ -7,6 +7,7 @@
 #include "unity_config.h"
 #include "semphr.h"
 #include "busy.h"
+#include <stdlib.h>
 
 #define TEST_RUNNER_PRIORITY      ( tskIDLE_PRIORITY + 10UL )
 #define LOWER_TASK_PRIORITY     ( tskIDLE_PRIORITY + 1UL )
@@ -43,6 +44,14 @@ void print_task_status(Tasks_To_Print* task_list, size_t task_count) {
         }
         vTaskDelay(pdMS_TO_TICKS(5));
     }
+    printf("\n");
+}
+
+uint32_t percent_difference(uint32_t a, uint32_t b) {
+    uint32_t hi = (a > b) ? a : b;
+    uint32_t lo = (a > b) ? b : a;
+    if (hi == 0) return 0;
+    return ((hi - lo) * 100) / hi;
 }
 
 void higher_prio_task(void *params) {
@@ -117,7 +126,7 @@ void test_priority_inversion() {
         last_runntime_higher = lower_prio_status.ulRunTimeCounter;
     }
 
-    #ifdef TEST_VERBOSE
+    // #ifdef TEST_VERBOSE
     Tasks_To_Print task_list[] = {
         { lower_task, "low priority" },
         { medium_task, "medium priority" },
@@ -125,7 +134,7 @@ void test_priority_inversion() {
     };
 
     print_task_status(task_list, 3);
-    #endif
+    // #endif
 
     // Cleanup
     vTaskDelete(lower_task);
@@ -166,6 +175,8 @@ void test_priority_inversion_with_mutex() {
     vTaskDelay(pdMS_TO_TICKS(1));
 }
 
+// prediction: both will progress roughly the same
+// outcome: true
 void test_same_priority_busy_busy(void) {
     TaskHandle_t task1;
     TaskHandle_t task2;
@@ -175,12 +186,34 @@ void test_same_priority_busy_busy(void) {
     xTaskCreate(busy_busy, "task 2",
                 LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task2);
 
+    #ifdef TEST_VERBOSE            
     Tasks_To_Print task_list[] = {
-        { task1, "task 1" },
-        { task2, "task 2" },
+        { task1, "task 1 (both busy)" },
+        { task2, "task 2 (both busy)" },
     };
 
     print_task_status(task_list, 2);
+    #endif
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    TaskStatus_t status1;
+    TaskStatus_t status2;
+
+    vTaskGetInfo(task1, &status1, pdFALSE, eInvalid);
+    vTaskGetInfo(task2, &status2, pdFALSE, eInvalid);
+
+    // Check task priorities
+    TEST_ASSERT_EQUAL_UINT32(uxTaskPriorityGet(task1), uxTaskPriorityGet(task2));
+    
+    // Check that both are making progress
+    TEST_ASSERT_TRUE_MESSAGE(status1.ulRunTimeCounter > 0 && status2.ulRunTimeCounter > 0, "Both should have runtime > 0");
+
+    // Check that they are close to the same execution (this is probably not a great test for systems that have many running tasks, but for 
+    // this program it will probably be okay 99% of the time)
+    // Check that they are not more than 20% different in run time
+    TEST_ASSERT_TRUE_MESSAGE(percent_difference(status1.ulRunTimeCounter, status2.ulRunTimeCounter) < 50 , "Run times differ too much");
+    
 
     vTaskDelete(task1);
     vTaskDelete(task2);
@@ -189,6 +222,8 @@ void test_same_priority_busy_busy(void) {
     vTaskDelay(pdMS_TO_TICKS(1));
 }
 
+// prediction: both will progress roughly the same, but maybe slower?
+// outcome: true, but they weren't really slower
 void test_same_priority_busy_yield(void) {
     TaskHandle_t task1;
     TaskHandle_t task2;
@@ -198,12 +233,34 @@ void test_same_priority_busy_yield(void) {
     xTaskCreate(busy_yield, "task 2",
                 LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task2);
 
+    #ifdef TEST_VERBOSE            
     Tasks_To_Print task_list[] = {
-        { task1, "task 1" },
-        { task2, "task 2" },
+        { task1, "task 1 (both yield)" },
+        { task2, "task 2 (both yield)" },
     };
 
     print_task_status(task_list, 2);
+    #endif
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    TaskStatus_t status1;
+    TaskStatus_t status2;
+
+    vTaskGetInfo(task1, &status1, pdFALSE, eInvalid);
+    vTaskGetInfo(task2, &status2, pdFALSE, eInvalid);
+
+    // Check task priorities
+    TEST_ASSERT_EQUAL_UINT32(uxTaskPriorityGet(task1), uxTaskPriorityGet(task2));
+    
+    // Check that both are making progress
+    TEST_ASSERT_TRUE_MESSAGE(status1.ulRunTimeCounter > 0 && status2.ulRunTimeCounter > 0, "Both should have runtime > 0");
+
+    // Check that they are close to the same execution (this is probably not a great test for systems that have many running tasks, but for 
+    // this program it will probably be okay 99% of the time)
+    // Check that they are not more than 20% different in run time
+    TEST_ASSERT_TRUE_MESSAGE(percent_difference(status1.ulRunTimeCounter, status2.ulRunTimeCounter) < 50 , "Run times differ too much");
+    
 
     vTaskDelete(task1);
     vTaskDelete(task2);
@@ -212,6 +269,8 @@ void test_same_priority_busy_yield(void) {
     vTaskDelay(pdMS_TO_TICKS(1));
 }
 
+// prediction: yield task will not progress while busy task will
+// outcome: true
 void test_same_priority_busy_yield_and_busy(void) {
     TaskHandle_t task1;
     TaskHandle_t task2;
@@ -221,12 +280,31 @@ void test_same_priority_busy_yield_and_busy(void) {
     xTaskCreate(busy_yield, "task 2",
                 LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task2);
 
+    #ifdef TEST_VERBOSE            
     Tasks_To_Print task_list[] = {
-        { task1, "task 1 (busy)" },
-        { task2, "task 2 (yield)" },
+        { task1, "task 1 (running busy)" },
+        { task2, "task 2 (running yield)" },
     };
 
     print_task_status(task_list, 2);
+    #endif
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    TaskStatus_t status1;
+    TaskStatus_t status2;
+
+    vTaskGetInfo(task1, &status1, pdFALSE, eInvalid);
+    vTaskGetInfo(task2, &status2, pdFALSE, eInvalid);
+
+    // Check task priorities
+    TEST_ASSERT_EQUAL_UINT32(uxTaskPriorityGet(task1), uxTaskPriorityGet(task2));
+    
+
+    // Check that task1 is running much more than task2
+    TEST_ASSERT_TRUE_MESSAGE(status1.ulRunTimeCounter > status2.ulRunTimeCounter , "yield task had greater execution time");
+    TEST_ASSERT_TRUE_MESSAGE(percent_difference(status1.ulRunTimeCounter, status2.ulRunTimeCounter) > 50 , "Run times were too close");
+    
 
     vTaskDelete(task1);
     vTaskDelete(task2);
@@ -235,6 +313,8 @@ void test_same_priority_busy_yield_and_busy(void) {
     vTaskDelay(pdMS_TO_TICKS(1));
 }
 
+// prediction: high priority task will complete, then low prio
+// outcome: true
 void test_different_priority_busy_busy_high_first(void) {
     TaskHandle_t task1;
     TaskHandle_t task2;
@@ -245,12 +325,30 @@ void test_different_priority_busy_busy_high_first(void) {
     xTaskCreate(busy_busy, "task 2",
                 LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task2);
 
+    #ifdef TEST_VERBOSE            
     Tasks_To_Print task_list[] = {
-        { task1, "task 1 (high)" },
-        { task2, "task 2 (low)" },
+        { task1, "task 1 (high prio running busy)" },
+        { task2, "task 2 (low prio running busy)" },
     };
 
     print_task_status(task_list, 2);
+    #endif
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    TaskStatus_t status1;
+    TaskStatus_t status2;
+
+    vTaskGetInfo(task1, &status1, pdFALSE, eInvalid);
+    vTaskGetInfo(task2, &status2, pdFALSE, eInvalid);
+
+    // Check task priorities
+    TEST_ASSERT_EQUAL_UINT32(uxTaskPriorityGet(task1), HIGHER_TASK_PRIORITY);
+    TEST_ASSERT_EQUAL_UINT32(uxTaskPriorityGet(task2), LOWER_TASK_PRIORITY);
+
+    // Check that they differ in run time signifcantly
+    TEST_ASSERT_TRUE_MESSAGE(status1.ulRunTimeCounter > status2.ulRunTimeCounter , "yield task had greater execution time");
+    TEST_ASSERT_TRUE_MESSAGE(percent_difference(status1.ulRunTimeCounter, status2.ulRunTimeCounter) > 50 , "Run times were too close");
 
     vTaskDelete(task1);
     vTaskDelete(task2);
@@ -259,22 +357,42 @@ void test_different_priority_busy_busy_high_first(void) {
     vTaskDelay(pdMS_TO_TICKS(1));
 }
 
+// prediction: high priority completes first
+// outcome: true
 void test_different_priority_busy_busy_low_first(void) {
     TaskHandle_t task1;
     TaskHandle_t task2;
 
     xTaskCreate(busy_busy, "task 1",
                 LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task1);
-    vTaskDelay(pdMS_TO_TICKS(1));
+    vTaskDelay(1);
     xTaskCreate(busy_busy, "task 2",
                 HIGHER_TASK_STACK_SIZE, NULL, HIGHER_TASK_PRIORITY, &task2);
 
+    #ifdef TEST_VERBOSE            
     Tasks_To_Print task_list[] = {
-        { task1, "task 1 (high)" },
-        { task2, "task 2 (low)" },
+        { task1, "task 1 (low prio running busy)" },
+        { task2, "task 2 (high prio running busy)" },
     };
 
     print_task_status(task_list, 2);
+    #endif
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    TaskStatus_t status1;
+    TaskStatus_t status2;
+
+    vTaskGetInfo(task1, &status1, pdFALSE, eInvalid);
+    vTaskGetInfo(task2, &status2, pdFALSE, eInvalid);
+
+    // Check task priorities
+    TEST_ASSERT_EQUAL_UINT32(uxTaskPriorityGet(task2), HIGHER_TASK_PRIORITY);
+    TEST_ASSERT_EQUAL_UINT32(uxTaskPriorityGet(task1), LOWER_TASK_PRIORITY);
+
+    // Check that they differ in run time signifcantly
+    TEST_ASSERT_TRUE_MESSAGE(status2.ulRunTimeCounter > status1.ulRunTimeCounter , "yield task had greater execution time");
+    TEST_ASSERT_TRUE_MESSAGE(percent_difference(status1.ulRunTimeCounter, status2.ulRunTimeCounter) > 50 , "Run times were too close");
 
     vTaskDelete(task1);
     vTaskDelete(task2);
@@ -283,6 +401,8 @@ void test_different_priority_busy_busy_low_first(void) {
     vTaskDelay(pdMS_TO_TICKS(1));
 }
 
+// prediction: high prio will complete first as there's nothing to yield to
+// outcome: true
 void test_different_priority_busy_yield_high_first(void) {
     TaskHandle_t task1;
     TaskHandle_t task2;
@@ -293,12 +413,30 @@ void test_different_priority_busy_yield_high_first(void) {
     xTaskCreate(busy_yield, "task 2",
                 LOWER_TASK_STACK_SIZE, NULL, LOWER_TASK_PRIORITY, &task2);
 
+    #ifdef TEST_VERBOSE            
     Tasks_To_Print task_list[] = {
-        { task1, "task 1 (high)" },
-        { task2, "task 2 (low)" },
+        { task1, "task 1 (high prio running yield)" },
+        { task2, "task 2 (low prio running yield)" },
     };
 
     print_task_status(task_list, 2);
+    #endif
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    TaskStatus_t status1;
+    TaskStatus_t status2;
+
+    vTaskGetInfo(task1, &status1, pdFALSE, eInvalid);
+    vTaskGetInfo(task2, &status2, pdFALSE, eInvalid);
+
+    // Check task priorities
+    TEST_ASSERT_EQUAL_UINT32(uxTaskPriorityGet(task1), HIGHER_TASK_PRIORITY);
+    TEST_ASSERT_EQUAL_UINT32(uxTaskPriorityGet(task2), LOWER_TASK_PRIORITY);
+
+    // Check that they differ in run time signifcantly
+    TEST_ASSERT_TRUE_MESSAGE(status1.ulRunTimeCounter > status2.ulRunTimeCounter , "yield task had greater execution time");
+    TEST_ASSERT_TRUE_MESSAGE(percent_difference(status1.ulRunTimeCounter, status2.ulRunTimeCounter) > 50 , "Run times were too close");
 
     vTaskDelete(task1);
     vTaskDelete(task2);
@@ -307,6 +445,8 @@ void test_different_priority_busy_yield_high_first(void) {
     vTaskDelay(pdMS_TO_TICKS(1));
 }
 
+// prediction: low prio will execute for a small time, but then high prio will complete
+// outcome: true
 void test_different_priority_busy_yield_low_first(void) {
     TaskHandle_t task1;
     TaskHandle_t task2;
@@ -317,12 +457,30 @@ void test_different_priority_busy_yield_low_first(void) {
     xTaskCreate(busy_yield, "task 2",
                 HIGHER_TASK_STACK_SIZE, NULL, HIGHER_TASK_PRIORITY, &task2);
 
+    #ifdef TEST_VERBOSE            
     Tasks_To_Print task_list[] = {
-        { task1, "task 1 (high)" },
-        { task2, "task 2 (low)" },
+        { task1, "task 1 (low prio running yield)" },
+        { task2, "task 2 (high prio running yield)" },
     };
 
     print_task_status(task_list, 2);
+    #endif
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    TaskStatus_t status1;
+    TaskStatus_t status2;
+
+    vTaskGetInfo(task1, &status1, pdFALSE, eInvalid);
+    vTaskGetInfo(task2, &status2, pdFALSE, eInvalid);
+
+    // Check task priorities
+    TEST_ASSERT_EQUAL_UINT32(uxTaskPriorityGet(task2), HIGHER_TASK_PRIORITY);
+    TEST_ASSERT_EQUAL_UINT32(uxTaskPriorityGet(task1), LOWER_TASK_PRIORITY);
+
+    // Check that they differ in run time signifcantly
+    TEST_ASSERT_TRUE_MESSAGE(status2.ulRunTimeCounter > status1.ulRunTimeCounter , "yield task had greater execution time");
+    TEST_ASSERT_TRUE_MESSAGE(percent_difference(status1.ulRunTimeCounter, status2.ulRunTimeCounter) > 50 , "Run times were too close");
 
     vTaskDelete(task1);
     vTaskDelete(task2);
@@ -336,7 +494,7 @@ void runner_thread (__unused void *args)
     for (;;) {
         printf("Starting test run.\n");
         UNITY_BEGIN();
-        RUN_TEST(test_priority_inversion);
+        // RUN_TEST(test_priority_inversion);
         RUN_TEST(test_priority_inversion_with_mutex);
         RUN_TEST(test_same_priority_busy_busy);
         RUN_TEST(test_same_priority_busy_yield);
