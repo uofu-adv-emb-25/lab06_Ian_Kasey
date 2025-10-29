@@ -95,6 +95,16 @@ void test_priority_inversion() {
     // Block for 1ms to allow HigherPrioTask & MediumPrioTask to run
     vTaskDelay(pdMS_TO_TICKS(1));
 
+    #ifdef TEST_VERBOSE
+    Tasks_To_Print task_list[] = {
+        { lower_task, "low priority" },
+        { medium_task, "medium priority" },
+        { higher_task, "high priority" },
+    };
+
+    print_task_status(task_list, 3);
+    #endif
+
     TaskStatus_t lower_prio_status, medium_prio_status, higher_prio_status;
 
     vTaskGetInfo(lower_task, &lower_prio_status, pdFALSE, eInvalid);
@@ -104,12 +114,18 @@ void test_priority_inversion() {
 
     // Get last runtime value for each task
     uint64_t last_runntime_lower = lower_prio_status.ulRunTimeCounter;
-    uint64_t last_runntime_medium = lower_prio_status.ulRunTimeCounter;
-    uint64_t last_runntime_higher = lower_prio_status.ulRunTimeCounter;
+    uint64_t last_runntime_medium = medium_prio_status.ulRunTimeCounter;
+    uint64_t last_runntime_higher = higher_prio_status.ulRunTimeCounter;
 
     // Loop and check each time
     for(int i = 0; i < 5; i ++) {
         vTaskDelay(pdMS_TO_TICKS(1));
+
+        // Refresh values
+        vTaskGetInfo(lower_task, &lower_prio_status, pdFALSE, eInvalid);
+        vTaskGetInfo(medium_task, &medium_prio_status, pdFALSE, eInvalid);
+        vTaskGetInfo(higher_task, &higher_prio_status, pdFALSE, eInvalid);
+        
         // Lower prio doesn't change
         TEST_ASSERT_TRUE_MESSAGE(lower_prio_status.ulRunTimeCounter == last_runntime_lower,
                                  "Lower priority runntime should not change for priority inversion.");
@@ -119,22 +135,16 @@ void test_priority_inversion() {
         // Higher prio doesn't change
         TEST_ASSERT_TRUE_MESSAGE(higher_prio_status.ulRunTimeCounter == last_runntime_higher,
                                  "Higher priority runntime should not change for priority inversion.");
+        // Test that Higher Priority is blocked
+        TEST_ASSERT_TRUE_MESSAGE(higher_prio_status.eCurrentState == 2,
+                                 "Higher priority task should be blocked due to priority inversion.");
 
         // Set previous runtimes
         last_runntime_lower = lower_prio_status.ulRunTimeCounter;
-        last_runntime_medium = lower_prio_status.ulRunTimeCounter;
-        last_runntime_higher = lower_prio_status.ulRunTimeCounter;
+        last_runntime_medium = medium_prio_status.ulRunTimeCounter;
+        last_runntime_higher = higher_prio_status.ulRunTimeCounter;
     }
 
-    // #ifdef TEST_VERBOSE
-    Tasks_To_Print task_list[] = {
-        { lower_task, "low priority" },
-        { medium_task, "medium priority" },
-        { higher_task, "high priority" },
-    };
-
-    print_task_status(task_list, 3);
-    // #endif
 
     // Cleanup
     vTaskDelete(lower_task);
@@ -494,8 +504,8 @@ void runner_thread (__unused void *args)
     for (;;) {
         printf("Starting test run.\n");
         UNITY_BEGIN();
-        // RUN_TEST(test_priority_inversion);
-        RUN_TEST(test_priority_inversion_with_mutex);
+        RUN_TEST(test_priority_inversion);
+        // RUN_TEST(test_priority_inversion_with_mutex);
         RUN_TEST(test_same_priority_busy_busy);
         RUN_TEST(test_same_priority_busy_yield);
         RUN_TEST(test_same_priority_busy_yield_and_busy);
