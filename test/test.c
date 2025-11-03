@@ -23,7 +23,48 @@
 
 void setUp(void) {}
 
-void tearDown(void) {}
+void tearDown(void) {
+    // List tasks that are still running and delete leftover tasks
+    UBaseType_t task_count = uxTaskGetNumberOfTasks();
+    TaskStatus_t tasks[task_count];
+    if(!uxTaskGetSystemState(tasks, task_count, NULL))
+    {
+        printf("ERROR: Could not retrieve task list for cleanup.");
+    }
+    else
+    {
+        #ifdef TEST_VERBOSE
+        printf("TASK LIST:\n");
+        for(int i = 0; i < task_count; i++) {
+            printf("\tNAME: %s\n\tNUMBER: %d\n", tasks[i].pcTaskName, tasks[i].xTaskNumber);
+        }
+        printf("END OF TASK LIST\n----------------------------\n");
+        #endif
+        // Save a set of safe tasks
+        TaskHandle_t idle = xTaskGetIdleTaskHandle();
+        TaskHandle_t runner = xTaskGetCurrentTaskHandle();
+        TaskHandle_t timer = xTaskGetHandle("Tmr Svc");
+        // Delete all leftover tasks
+        for(int i = 0; i < task_count; i++) {
+            if(tasks[i].xHandle == idle ||
+               tasks[i].xHandle == runner ||
+               tasks[i].xHandle == timer)
+            {
+                #ifdef TEST_VERBOSE
+                printf("Task: %s --safe\n", tasks[i].pcTaskName);
+                #endif
+                continue;
+            }
+            else
+            {
+                #ifdef TEST_VERBOSE
+                printf("Task: %s --deleted\n", tasks[i].pcTaskName);
+                #endif
+                vTaskDelete(tasks[i].xHandle);
+            }
+        }
+    }
+}
 
 typedef struct {
     TaskHandle_t task_handle;
@@ -58,7 +99,7 @@ void higher_prio_task(void *params) {
     SemaphoreHandle_t lock = (*(SemaphoreHandle_t*)params);
     while(1) {
         xSemaphoreTake(lock, 0xffff);
-        for(uint32_t i = 0; i < 100000; i++) {;}
+        for(uint32_t i = 0; i < 10000; i++) {;}
         xSemaphoreGive(lock);
     }
 }
@@ -73,7 +114,7 @@ void lower_prio_task(void *params) {
     SemaphoreHandle_t lock = (*(SemaphoreHandle_t*)params);
     while (1) {
         xSemaphoreTake(lock, 0xffff);
-        for(uint32_t i = 0; i < 100000; i++) {;}
+        for(uint32_t i = 0; i < 10000; i++) {;}
         xSemaphoreGive(lock);
     }
 }
@@ -86,6 +127,7 @@ void test_priority_inversion() {
     TaskHandle_t higher_task;
     xTaskCreate(lower_prio_task, "LowerPrioTask",
                 LOWER_TASK_STACK_SIZE, (void *)&lock, LOWER_TASK_PRIORITY, &lower_task);
+    // Delay to allow LowerPrioTask to acquire lock
     vTaskDelay(pdMS_TO_TICKS(1));
     xTaskCreate(higher_prio_task, "HigherPrioTask",
                 HIGHER_TASK_STACK_SIZE, (void *)&lock, HIGHER_TASK_PRIORITY, &higher_task);
@@ -125,7 +167,7 @@ void test_priority_inversion() {
         vTaskGetInfo(lower_task, &lower_prio_status, pdFALSE, eInvalid);
         vTaskGetInfo(medium_task, &medium_prio_status, pdFALSE, eInvalid);
         vTaskGetInfo(higher_task, &higher_prio_status, pdFALSE, eInvalid);
-        
+
         // Lower prio doesn't change
         TEST_ASSERT_TRUE_MESSAGE(lower_prio_status.ulRunTimeCounter == last_runntime_lower,
                                  "Lower priority runntime should not change for priority inversion.");
@@ -138,13 +180,17 @@ void test_priority_inversion() {
         // Test that Higher Priority is blocked
         TEST_ASSERT_TRUE_MESSAGE(higher_prio_status.eCurrentState == 2,
                                  "Higher priority task should be blocked due to priority inversion.");
+        // Test that Lower and Medium are ready
+        TEST_ASSERT_TRUE_MESSAGE(lower_prio_status.eCurrentState == 1,
+                                 "Lower priority task should be in the Ready state, but unable to run due to priority inversion");
+        TEST_ASSERT_TRUE_MESSAGE(medium_prio_status.eCurrentState == 1,
+                                 "Medium priority task should be in the Ready state, stealing runtime due to priority inversion");
 
         // Set previous runtimes
         last_runntime_lower = lower_prio_status.ulRunTimeCounter;
         last_runntime_medium = medium_prio_status.ulRunTimeCounter;
         last_runntime_higher = higher_prio_status.ulRunTimeCounter;
     }
-
 
     // Cleanup
     vTaskDelete(lower_task);
@@ -160,6 +206,7 @@ void test_priority_inversion_with_mutex() {
     TaskHandle_t higher_task;
     xTaskCreate(lower_prio_task, "LowerPrioTask",
                 LOWER_TASK_STACK_SIZE, (void *)&lock, LOWER_TASK_PRIORITY, &lower_task);
+    // Delay to allow LowerPrioTask to obtain lock
     vTaskDelay(pdMS_TO_TICKS(1));
     xTaskCreate(higher_prio_task, "HigherPrioTask",
                 HIGHER_TASK_STACK_SIZE, (void *)&lock, HIGHER_TASK_PRIORITY, &higher_task);
@@ -169,6 +216,7 @@ void test_priority_inversion_with_mutex() {
     // Block for 1ms to allow HigherPrioTask & MediumPrioTask to run
     vTaskDelay(pdMS_TO_TICKS(1));
 
+    #ifdef TEST_VERBOSE
     Tasks_To_Print task_list[] = {
         { lower_task, "low priority" },
         { medium_task, "medium priority" },
@@ -176,7 +224,64 @@ void test_priority_inversion_with_mutex() {
     };
 
     print_task_status(task_list, 3);
+    #endif
 
+
+    TaskStatus_t lower_prio_status, medium_prio_status, higher_prio_status;
+
+    vTaskGetInfo(lower_task, &lower_prio_status, pdFALSE, eInvalid);
+    vTaskGetInfo(medium_task, &medium_prio_status, pdFALSE, eInvalid);
+    vTaskGetInfo(higher_task, &higher_prio_status, pdFALSE, eInvalid);
+
+    printf("Task %s Status:\n\tState: %d\n\tExecution Time: %llu\n", lower_prio_status.pcTaskName, lower_prio_status.eCurrentState, lower_prio_status.ulRunTimeCounter);
+    printf("Task %s Status:\n\tState: %d\n\tExecution Time: %llu\n", medium_prio_status.pcTaskName, medium_prio_status.eCurrentState, medium_prio_status.ulRunTimeCounter);
+    printf("Task %s Status:\n\tState: %d\n\tExecution Time: %llu\n", higher_prio_status.pcTaskName, higher_prio_status.eCurrentState, higher_prio_status.ulRunTimeCounter);
+
+
+
+    // Get last runtime value for each task
+    uint64_t last_runntime_lower = lower_prio_status.ulRunTimeCounter;
+    uint64_t last_runntime_medium = medium_prio_status.ulRunTimeCounter;
+    uint64_t last_runntime_higher = higher_prio_status.ulRunTimeCounter;
+
+    // Loop and check each time
+    for(int i = 0; i < 5; i ++) {
+        vTaskDelay(pdMS_TO_TICKS(1));
+
+        // Refresh values
+        vTaskGetInfo(lower_task, &lower_prio_status, pdFALSE, eInvalid);
+        vTaskGetInfo(medium_task, &medium_prio_status, pdFALSE, eInvalid);
+        vTaskGetInfo(higher_task, &higher_prio_status, pdFALSE, eInvalid);
+        
+        printf("Task %s Status:\n\tState: %d\n\tExecution Time: %llu\n", lower_prio_status.pcTaskName, lower_prio_status.eCurrentState, lower_prio_status.ulRunTimeCounter);
+        printf("Task %s Status:\n\tState: %d\n\tExecution Time: %llu\n", medium_prio_status.pcTaskName, medium_prio_status.eCurrentState, medium_prio_status.ulRunTimeCounter);
+        printf("Task %s Status:\n\tState: %d\n\tExecution Time: %llu\n", higher_prio_status.pcTaskName, higher_prio_status.eCurrentState, higher_prio_status.ulRunTimeCounter);
+        
+        // Lower should change due to priority inheritance
+        TEST_ASSERT_TRUE_MESSAGE(lower_prio_status.ulRunTimeCounter == last_runntime_lower,
+                                 "Lower priority runntime should stay the same due to priority inheritance.");
+        // Medium prio should stay roughly the same
+        TEST_ASSERT_TRUE_MESSAGE(medium_prio_status.ulRunTimeCounter == last_runntime_medium,
+                                 "Medium priority runntime shouldn't change due to priority inheritance.");
+        // Higher prio should be allowed the most runtime
+        TEST_ASSERT_TRUE_MESSAGE(higher_prio_status.ulRunTimeCounter > last_runntime_higher,
+                                 "Higher priority runntime should increase due to priority inheritance releasing the lock.");
+        // Higher priority could be either blocked or running
+        TEST_ASSERT_TRUE_MESSAGE(higher_prio_status.eCurrentState == 1,
+                                 "Higher priority task should be in the Ready state.");
+        // Test that Lower and Medium are ready
+        TEST_ASSERT_TRUE_MESSAGE(lower_prio_status.eCurrentState == 1,
+                                 "Lower priority task should be in the Ready state, but unable to run due to lower priority.");
+        TEST_ASSERT_TRUE_MESSAGE(medium_prio_status.eCurrentState == 1,
+                                 "Medium priority task should be in the Ready state, but unable to run due to lower priority.");
+
+        // Set previous runtimes
+        last_runntime_lower = lower_prio_status.ulRunTimeCounter;
+        last_runntime_medium = medium_prio_status.ulRunTimeCounter;
+        last_runntime_higher = higher_prio_status.ulRunTimeCounter;
+    }
+
+    // Cleanup
     vTaskDelete(lower_task);
     vTaskDelete(medium_task);
     vTaskDelete(higher_task);
@@ -357,7 +462,7 @@ void test_different_priority_busy_busy_high_first(void) {
     TEST_ASSERT_EQUAL_UINT32(uxTaskPriorityGet(task2), LOWER_TASK_PRIORITY);
 
     // Check that they differ in run time signifcantly
-    TEST_ASSERT_TRUE_MESSAGE(status1.ulRunTimeCounter > status2.ulRunTimeCounter , "yield task had greater execution time");
+    TEST_ASSERT_TRUE_MESSAGE(status1.ulRunTimeCounter > status2.ulRunTimeCounter , "Lower priority busy task had greater execution time than higher priority busy task.");
     TEST_ASSERT_TRUE_MESSAGE(percent_difference(status1.ulRunTimeCounter, status2.ulRunTimeCounter) > 50 , "Run times were too close");
 
     vTaskDelete(task1);
@@ -505,7 +610,7 @@ void runner_thread (__unused void *args)
         printf("Starting test run.\n");
         UNITY_BEGIN();
         RUN_TEST(test_priority_inversion);
-        // RUN_TEST(test_priority_inversion_with_mutex);
+        RUN_TEST(test_priority_inversion_with_mutex);
         RUN_TEST(test_same_priority_busy_busy);
         RUN_TEST(test_same_priority_busy_yield);
         RUN_TEST(test_same_priority_busy_yield_and_busy);
