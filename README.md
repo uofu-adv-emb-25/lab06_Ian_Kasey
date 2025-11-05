@@ -25,3 +25,13 @@ a mutex allows for priority inheritance, the lower prority task will no longer b
 This allows it to finally give up the lock and allow the higher priority task to run until completion. This means the medium priority task does not get execution time in our example.
 
 ![activity 1](resources/activity1.png)
+
+## Summary of Tests:
+
+---
+
+Testing for priority inversion expects the lower and higher priority tasks to have no increasing processor time, the medium priority task to have increasing processor time, and for the higher priority task to be blocked while the lower and medium priority tasks are in the "Ready" state (technically the medium priority task should be in the "Running" state, but that's impossible to check from the runner task). The Tests affirm this expectation.
+
+Testing for the priority inheritance expects the lower and medium priority tasks to have no increasing processing time since the higher priority task consumes all processing time due to...well having highest priority. All three tasks are expected to be in the "Ready" state (including higher priority task due to the same reasons as above). The Tests affirm this expectation.
+
+The rest of the tests include the expected results before their test.
