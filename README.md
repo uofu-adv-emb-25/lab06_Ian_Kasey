@@ -4,8 +4,6 @@ Status Badge: ![Lab 06 Status](https://github.com/uofu-adv-emb-25/lab06_Ian_Kase
 
 By Ian Smith and Kasey Kemp
 
-Lab06 stuff goes here.
-
 ## Activity 0
 
 ---
@@ -27,5 +25,3 @@ a mutex allows for priority inheritance, the lower prority task will no longer b
 This allows it to finally give up the lock and allow the higher priority task to run until completion. This means the medium priority task does not get execution time in our example.
 
 ![activity 1](resources/activity1.png)
-
-## Activity 2
